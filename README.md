@@ -1,6 +1,6 @@
 # Combine a TLSF specification and AIG implementation for model checking
 
-(This is clone of Leander Tentrup's original tool)
+(This is a clone of Leander Tentrup's original tool)
 
 Dependencies:
 
