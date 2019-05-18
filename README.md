@@ -1,4 +1,6 @@
-# Model Check AIGER solutions of TLSF synthesis tools
+# Combine a TLSF specification and AIG implementation for model checking
+
+(This is clone of Leander Tentrup's original tool)
 
 Dependencies:
 
