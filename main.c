@@ -31,8 +31,10 @@ int main(int argc, const char* argv[]) {
         return 1;
     }
     
-    if (aiger_open_and_read_from_file(monitor, monitor_file_name) != NULL) {
+    const char* res = aiger_open_and_read_from_file(monitor, monitor_file_name);
+    if (res != NULL) {
         fprintf(stderr, "error: cannot read monitor file\n");
+        fprintf(stderr, "%s\n", res);
         return 1;
     }
     
@@ -41,8 +43,10 @@ int main(int argc, const char* argv[]) {
         return 1;
     }
     
-    if (aiger_open_and_read_from_file(implementation, implementation_file_name) != NULL) {
+    res = aiger_open_and_read_from_file(implementation, implementation_file_name);
+    if (res != NULL) {
         fprintf(stderr, "error: cannot read implementation file\n");
+        fprintf(stderr, "%s\n", res);
         return 1;
     }
     
