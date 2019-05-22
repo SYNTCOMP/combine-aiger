@@ -5,7 +5,6 @@
 Dependencies:
 
 * `smvtoaig` from AIGER toolset
-* `ltl2smv` from NuSMV
 
 Build: `$ make`
 
