@@ -1,6 +1,6 @@
 /***************************************************************************
 Copyright (c) 2011, Siert Wieringa, Aalto University, Finland.
-Copyright (c) 2006-2011, Armin Biere, Johannes Kepler University.
+Copyright (c) 2006-2019, Armin Biere, Johannes Kepler University.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to
@@ -601,6 +601,23 @@ aiger_error_uu (aiger_private * private, const char *s, unsigned a,
 }
 
 static const char *
+aiger_error_us (aiger_private * private, const char *s, unsigned a,
+		const char * b)
+{
+  unsigned tmp_len, error_len;
+  char *tmp;
+  assert (!private->error);
+  tmp_len = strlen (s) + sizeof (a) * 4 + strlen (b) + 1;
+  NEWN (tmp, tmp_len);
+  sprintf (tmp, s, a, b);
+  error_len = strlen (tmp) + 1;
+  NEWN (private->error, error_len);
+  memcpy (private->error, tmp, error_len);
+  DELETEN (tmp, tmp_len);
+  return private->error;
+}
+
+static const char *
 aiger_error_usu (aiger_private * private,
 		 const char *s, unsigned a, const char *t, unsigned b)
 {
@@ -918,11 +935,9 @@ aiger_default_put (char ch, FILE * file)
 static int
 aiger_string_put (char ch, aiger_buffer * buffer)
 {
-  unsigned char res;
   if (buffer->cursor == buffer->end)
     return EOF;
   *buffer->cursor++ = ch;
-  res = ch;
   return ch;
 }
 
@@ -1606,10 +1621,6 @@ aiger_reencode (aiger * public)
 
   qsort (public->ands, j, sizeof (*and), cmp_lhs);
 
-  assert (new);
-  assert (public->maxvar >= aiger_lit2var (new - 1));
-  public->maxvar = aiger_lit2var (new - 1);
-
   /* Reset types.
    */
   for (i = 1; i <= public->maxvar; i++)
@@ -1620,6 +1631,10 @@ aiger_reencode (aiger * public)
       type->and = 0;
       type->idx = 0;
     }
+
+  assert (new);
+  assert (public->maxvar >= aiger_lit2var (new - 1));
+  public->maxvar = aiger_lit2var (new - 1);
 
   /* Fix types for ANDs.
    */
@@ -1929,6 +1944,7 @@ aiger_read_number (aiger_reader * reader)
 static const char *
 aiger_read_literal (aiger_private * private,
 		    aiger_reader * reader,
+		    const char * context,
 		    unsigned *res_ptr, 
 		    char expected_followed_by,
 		    char * followed_by_ptr)
@@ -1940,31 +1956,32 @@ aiger_read_literal (aiger_private * private,
           !expected_followed_by);
 
   if (!isdigit (reader->ch))
-    return aiger_error_u (private,
-			  "line %u: expected literal", reader->lineno);
+    return aiger_error_us (private,
+			  "line %u: expected %s",
+			  reader->lineno, context);
 
   res = aiger_read_number (reader);
 
   if (expected_followed_by == ' ')
     {
       if (reader->ch != ' ')
-	return aiger_error_uu (private,
-			       "line %u: expected space after literal %u",
-			       reader->lineno_at_last_token_start, res);
-    }
+	return aiger_error_usu (private,
+		 "line %u: expected space after %s %u",
+		 reader->lineno_at_last_token_start, context, res);
+}
   if (expected_followed_by == '\n')
     {
       if (reader->ch != '\n')
-	return aiger_error_uu (private,
-			       "line %u: expected new line after literal %u",
-			       reader->lineno_at_last_token_start, res);
-    }
+	return aiger_error_usu (private,
+		 "line %u: expected new line after %s %u",
+		 reader->lineno_at_last_token_start, context, res);
+}
   if (!expected_followed_by)
     {
       if (reader->ch != '\n' && reader->ch != ' ')
-	return aiger_error_uu (private,
-		 "line %u: expected space or new line after literal %u",
-		 reader->lineno_at_last_token_start, res);
+	return aiger_error_usu (private,
+		 "line %u: expected space or new line after %s %u",
+		 reader->lineno_at_last_token_start, context, res);
     }
 
   if (followed_by_ptr)
@@ -2048,19 +2065,29 @@ aiger_read_header (aiger * public, aiger_reader * reader)
 
   aiger_next_ch (reader);
 
-  if (aiger_read_literal (private, reader, &reader->maxvar, ' ', 0) ||
-      aiger_read_literal (private, reader, &reader->inputs, ' ', 0) ||
-      aiger_read_literal (private, reader, &reader->latches, ' ', 0) ||
-      aiger_read_literal (private, reader, &reader->outputs, ' ', 0) ||
-      aiger_read_literal (private, reader, &reader->ands, 0, &ch) ||
+  if (aiger_read_literal (private, reader,
+        "maximum variable index", &reader->maxvar, ' ', 0) ||
+      aiger_read_literal (private, reader,
+        "number of inputs", &reader->inputs, ' ', 0) ||
+      aiger_read_literal (private, reader,
+        "number latches", &reader->latches, ' ', 0) ||
+      aiger_read_literal (private, reader,
+        "number of outputs", &reader->outputs, ' ', 0) ||
+      aiger_read_literal (private, reader,
+        "number of and gates", &reader->ands, 0, &ch) ||
       (ch == ' ' &&
-       aiger_read_literal (private, reader, &reader->bad, 0, &ch)) ||
+       aiger_read_literal (private, reader,
+         "number of bad state constraints", &reader->bad, 0, &ch)) ||
       (ch == ' ' &&
-       aiger_read_literal (private, reader, &reader->constraints, 0, &ch)) ||
+       aiger_read_literal (private, reader,
+         "number of invariant constraints",
+	 &reader->constraints, 0, &ch)) ||
       (ch == ' ' &&
-       aiger_read_literal (private, reader, &reader->justice, 0, &ch)) ||
+       aiger_read_literal (private, reader,
+         "number of justice constraints", &reader->justice, 0, &ch)) ||
       (ch == ' ' &&
-       aiger_read_literal (private, reader, &reader->fairness, '\n', 0)))
+       aiger_read_literal (private, reader,
+         "number of fairness constraints", &reader->fairness, '\n', 0)))
     {
       assert (private->error);
       return private->error;
@@ -2094,7 +2121,8 @@ aiger_read_header (aiger * public, aiger_reader * reader)
     {
       if (reader->mode == aiger_ascii_mode)
 	{
-	  error = aiger_read_literal (private, reader, &lit, '\n', 0);
+	  error = aiger_read_literal (private, reader,
+	            "input literal", &lit, '\n', 0);
 	  if (error)
 	    return error;
 
@@ -2118,7 +2146,8 @@ aiger_read_header (aiger * public, aiger_reader * reader)
     {
       if (reader->mode == aiger_ascii_mode)
 	{
-	  error = aiger_read_literal (private, reader, &lit, ' ', 0);
+	  error = aiger_read_literal (private, reader,
+	            "latch literal", &lit, ' ', 0);
 	  if (error)
 	    return error;
 
@@ -2135,7 +2164,8 @@ aiger_read_header (aiger * public, aiger_reader * reader)
       else
 	lit = 2 * (i + reader->inputs + 1);
 
-      error = aiger_read_literal (private, reader, &next, 0, &ch);
+      error = aiger_read_literal (private, reader,
+                "next state literal", &next, 0, &ch);
       if (error)
 	return error;
 
@@ -2148,7 +2178,8 @@ aiger_read_header (aiger * public, aiger_reader * reader)
 
       if (ch == ' ')
 	{
-	  error = aiger_read_literal (private, reader, &reset, '\n', 0);
+	  error = aiger_read_literal (private, reader,
+	            "reset literal", &reset, '\n', 0);
 	  if (error)
 	    return error;
 
@@ -2158,7 +2189,8 @@ aiger_read_header (aiger * public, aiger_reader * reader)
 
   for (i = 0; i < reader->outputs; i++)
     {
-      error = aiger_read_literal (private, reader, &lit, '\n', 0);
+      error = aiger_read_literal (private, reader,
+                "output literal", &lit, '\n', 0);
       if (error)
 	return error;
 
@@ -2172,7 +2204,8 @@ aiger_read_header (aiger * public, aiger_reader * reader)
 
   for (i = 0; i < reader->bad; i++)
     {
-      error = aiger_read_literal (private, reader, &lit, '\n', 0);
+      error = aiger_read_literal (private, reader,
+                "bad state constraint literal", &lit, '\n', 0);
       if (error)
 	return error;
 
@@ -2186,7 +2219,8 @@ aiger_read_header (aiger * public, aiger_reader * reader)
 
   for (i = 0; i < reader->constraints; i++)
     {
-      error = aiger_read_literal (private, reader, &lit, '\n', 0);
+      error = aiger_read_literal (private, reader,
+                "invariant constraint literal", &lit, '\n', 0);
       if (error)
 	return error;
 
@@ -2203,12 +2237,14 @@ aiger_read_header (aiger * public, aiger_reader * reader)
       NEWN (sizes, reader->justice);
       error =  0;
       for (i = 0; !error && i < reader->justice; i++)
-	error = aiger_read_literal (private, reader, sizes + i, '\n', 0);
+	error = aiger_read_literal (private, reader,
+	          "justice constraint size", sizes + i, '\n', 0);
       for (i = 0; !error && i < reader->justice; i++)
 	{
 	  NEWN (lits, sizes[i]);
 	  for (j = 0; !error && j < sizes[i]; j++)
-	    error = aiger_read_literal (private, reader, lits + j, '\n', 0);
+	    error = aiger_read_literal (private, reader,
+	              "justice constraint literal", lits + j, '\n', 0);
 	  if (!error)
 	    aiger_add_justice (public, sizes[i], lits, 0);
 	  DELETEN (lits, sizes[i]);
@@ -2220,7 +2256,8 @@ aiger_read_header (aiger * public, aiger_reader * reader)
 
   for (i = 0; i < reader->fairness; i++)
     {
-      error = aiger_read_literal (private, reader, &lit, '\n', 0);
+      error = aiger_read_literal (private, reader,
+                "fairness constraint literal", &lit, '\n', 0);
       if (error)
 	return error;
 
@@ -2247,7 +2284,8 @@ aiger_read_ascii (aiger * public, aiger_reader * reader)
 
   for (i = 0; i < reader->ands; i++)
     {
-      error = aiger_read_literal (private, reader, &lhs, ' ', 0);
+      error = aiger_read_literal (private, reader,
+                "and gate left-hand side literal", &lhs, ' ', 0);
       if (error)
 	return error;
 
@@ -2261,7 +2299,9 @@ aiger_read_ascii (aiger * public, aiger_reader * reader)
       if (error)
 	return error;
 
-      error = aiger_read_literal (private, reader, &rhs0, ' ', 0);
+      error = aiger_read_literal (private, reader,
+                "and gate first right-hand side literal",
+		&rhs0, ' ', 0);
       if (error)
 	return error;
 
@@ -2270,7 +2310,9 @@ aiger_read_ascii (aiger * public, aiger_reader * reader)
 			       "line %u: literal %u is not a valid literal",
 			       reader->lineno_at_last_token_start, rhs0);
 
-      error = aiger_read_literal (private, reader, &rhs1, '\n', 0);
+      error = aiger_read_literal (private, reader,
+                "and gate first right-hand side literal",
+		&rhs1, '\n', 0);
       if (error)
 	return error;
 
@@ -2411,7 +2453,7 @@ static const char *
 aiger_read_symbols_and_comments (aiger * public, aiger_reader * reader)
 {
   IMPORT_private_FROM (public);
-  const char *error, *type;
+  const char *error, *type_name, * type_pos;
   unsigned pos, num, count;
   aiger_symbol *symbol;
   
@@ -2444,49 +2486,63 @@ aiger_read_symbols_and_comments (aiger * public, aiger_reader * reader)
 	 or the start of a constraint symbol */
       if (reader->ch == 'c')
 	{	  
-	  if ( aiger_next_ch (reader) == '\n' )
+	  if (aiger_next_ch (reader) == '\n' )
 	    return aiger_read_comments(public, reader);
 
-	  type = "constraint";
+	  type_name = "constraint";
+	  type_pos = "constraint";
 	  num = public->num_constraints;
 	  symbol = public->constraints;
+
+	  if (!num)
+	    return aiger_error_u (private,
+		     "line %u: "
+		     "unexpected invariance constraint symbol entry prefix 'c ' "
+		     "(comment sections start with 'c<new-line>' without space)",
+		     reader->lineno_at_last_token_start);
 	}
       else 
 	{
 	  if (reader->ch == 'i')
 	    {
-	      type = "input";
+	      type_name = "input";
+	      type_pos = "input";
 	      num = public->num_inputs;
 	      symbol = public->inputs;
 	    }
 	  else if (reader->ch == 'l')
 	    {
-	      type = "latch";
+	      type_name = "latch";
+	      type_pos = "latch";
 	      num = public->num_latches;
 	      symbol = public->latches;
 	    }
 	  else if (reader->ch == 'o')
 	    {
-	      type = "output";
+	      type_name = "output";
+	      type_pos = "output";
 	      num = public->num_outputs;
 	      symbol = public->outputs;
 	    }
 	  else if (reader->ch == 'b')
 	    {
-	      type = "bad";
+	      type_name = "bad";
+	      type_pos = "bad";
 	      num = public->num_bad;
 	      symbol = public->bad;
 	    }     
 	  else if (reader->ch == 'j')
 	    {
-	      type = "justice";
+	      type_name = "justice";
+	      type_pos = "justice";
 	      num = public->num_justice;
 	      symbol = public->justice;
 	    }
 	  else
 	    {
 	      assert (reader->ch == 'f');
-	      type = "fairness";
+	      type_name = "fairness";
+	      type_pos = "fairness";
 	      num = public->num_fairness;
 	      symbol = public->fairness;
 	    }
@@ -2494,23 +2550,23 @@ aiger_read_symbols_and_comments (aiger * public, aiger_reader * reader)
 	  aiger_next_ch (reader);
 	}
 
-      error = aiger_read_literal (private, reader, &pos, ' ', 0);
+      error = aiger_read_literal (private, reader,
+                type_pos, &pos, ' ', 0);
       if (error)
 	return error;
 
       if (pos >= num)
 	return aiger_error_usu (private,
-				"line %u: "
-				"%s symbol table entry position %u too large",
-				reader->lineno_at_last_token_start, type,
-				pos);
+		 "line %u: "
+		 "%s symbol table entry position %u too large",
+		 reader->lineno_at_last_token_start, type_name, pos);
 
       symbol += pos;
 
       if (symbol->name)
 	return aiger_error_usu (private,
-				"line %u: %s %u has multiple symbols",
-				reader->lineno_at_last_token_start, type,
+				"line %u: %s literal %u has multiple symbols",
+				reader->lineno_at_last_token_start, type_name,
 				symbol->lit);
 
       while (reader->ch != '\n' && reader->ch != EOF)
@@ -2650,7 +2706,6 @@ aiger_lit2type (aiger * public, unsigned lit)
   aiger_type *type;
   unsigned var;
 
-  assert (!aiger_sign (lit));
   var = aiger_lit2var (lit);
   assert (var <= public->maxvar);
   type = private->types + var;
